@@ -89,6 +89,10 @@ export function notebookFromJson(value: unknown): UiNotebook {
       outputs,
       executionCount: count,
       running: false,
+      queued: false,
+      runMs: null,
+      runAt: null,
+      runStartedAt: null,
     }
   })
   return {
@@ -142,6 +146,10 @@ export function emptyUiNotebook(): UiNotebook {
       outputs: [],
       executionCount: null,
       running: false,
+      queued: false,
+      runMs: null,
+      runAt: null,
+      runStartedAt: null,
     }],
     metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' } },
     nbformat: 4,
@@ -152,5 +160,5 @@ export function emptyUiNotebook(): UiNotebook {
 
 /** New cell factory. */
 export function makeCell(type: 'code' | 'markdown' | 'raw', source = ''): UiCell {
-  return { id: nextId(), type, source, outputs: [], executionCount: null, running: false }
+  return { id: nextId(), type, source, outputs: [], executionCount: null, running: false, queued: false, runMs: null, runAt: null, runStartedAt: null }
 }

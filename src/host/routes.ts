@@ -17,12 +17,13 @@ import type { PluginContext } from './context.ts'
 import type { NotebookFs } from './jupyter/notebook.ts'
 import { detectEnv } from './jupyter/env.ts'
 import type { KernelManager } from './jupyter/kernel.ts'
-import { createSessionGate } from './gate.ts'
+import { createSessionGate, isPathInside } from './gate.ts'
 
 /** Route family base. */
 export const JUPYTER_API = {
   env: '/api/dsh-better-sidebar-jupyter/env',
   notebook: '/api/dsh-better-sidebar-jupyter/notebook',
+  kernels: '/api/dsh-better-sidebar-jupyter/kernels',
   kernelStatus: '/api/dsh-better-sidebar-jupyter/kernel/status',
   kernelStop: '/api/dsh-better-sidebar-jupyter/kernel/stop',
   kernelInterrupt: '/api/dsh-better-sidebar-jupyter/kernel/interrupt',
@@ -122,6 +123,38 @@ export function makeRoutes(deps: JupyterRoutesDeps): { routes: WebRoute[]; upgra
         if (!guard(req, res, 'GET')) return
         const report = await detectEnv()
         writeJson(res, 200, { report })
+      },
+    },
+    // ----------------------------------------- running kernels (explorer dot)
+    {
+      kind: 'exact',
+      path: JUPYTER_API.kernels,
+      handler: async (req, res) => {
+        if (!guard(req, res, 'GET')) return
+        const url = new URL(req.url ?? '/', 'http://localhost')
+        // The gate rejects an EMPTY path, so resolve the session's own cwd
+        // from the session store and gate THAT (canonicalized) instead.
+        const sessionId = queryParam(url, 'sessionId')
+        if (sessionId === undefined || sessionId === '') {
+          writeJson(res, 400, { error: 'sessionId is required' })
+          return
+        }
+        const sessionCwd = ctx.sessions.get(sessionId)?.header.cwd
+        if (sessionCwd === undefined || sessionCwd === '') {
+          writeJson(res, 400, { error: 'workspace gate: session has no cwd' })
+          return
+        }
+        const verdict = await createSessionGate(ctx, sessionId, queryParam(url, 'cwd'))(sessionCwd)
+        if (!verdict.ok) {
+          writeJson(res, 400, { error: `workspace gate: ${verdict.error}` })
+          return
+        }
+        const rows = kernels.list((path) => isPathInside(verdict.canonical, path)).map((k) => ({
+          path: k.key,
+          running: k.running,
+          busy: k.busy,
+        }))
+        writeJson(res, 200, { kernels: rows })
       },
     },
     // ---------------------------------------------------------- notebook
@@ -252,7 +285,57 @@ export function makeRoutes(deps: JupyterRoutesDeps): { routes: WebRoute[]; upgra
               return
             }
             handle = attached
-            ws.send(JSON.stringify({ type: 'kernel_state', running: true, ready: true, key: verdict.canonical }))
+            const state = kernels.attachState(verdict.canonical)
+            ws.send(JSON.stringify({
+              type: 'kernel_state',
+              running: true,
+              ready: true,
+              key: verdict.canonical,
+              busy: state.busy,
+              cellId: state.executingCellId,
+              index: state.index,
+              pendingCells: state.pendingCells,
+            }))
+            if (state.busy && state.executingCellId !== null) {
+              // Re-sync a run that started while this browser was away: mark
+              // the executing cell busy, clear any stale partial output the
+              // client may hold, then replay the outputs accumulated so far.
+              // Live bridge events continue to flow after this point.
+              ws.send(JSON.stringify({
+                type: 'event',
+                event: { type: 'status', execution_state: 'busy', cell_id: state.executingCellId },
+              }))
+              ws.send(JSON.stringify({
+                type: 'event',
+                event: { type: 'clear_output', cell_id: state.executingCellId, wait: false },
+              }))
+              for (const event of state.outputs) {
+                ws.send(JSON.stringify({ type: 'event', event }))
+              }
+            }
+            // Replay any executions that COMPLETED while this browser was
+            // away (their replies never reached the old socket): clear the
+            // cell, replay the full outputs, then send the reply so a cell
+            // that was pending on this client settles instead of spinning.
+            for (const done of state.completions) {
+              ws.send(JSON.stringify({
+                type: 'event',
+                event: { type: 'clear_output', cell_id: done.cell_id, wait: false },
+              }))
+              for (const event of done.outputs) {
+                ws.send(JSON.stringify({ type: 'event', event }))
+              }
+              ws.send(JSON.stringify({
+                type: 'event',
+                event: {
+                  type: 'execute_reply',
+                  cell_id: done.cell_id,
+                  ok: done.ok,
+                  execution_count: done.execution_count,
+                },
+              }))
+            }
+            if (state.completions.length > 0) kernels.clearCompletions(verdict.canonical)
           }).catch((error) => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'kernel_error', message: error instanceof Error ? error.message : String(error) }))

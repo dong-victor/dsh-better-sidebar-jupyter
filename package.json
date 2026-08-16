@@ -1,7 +1,7 @@
 {
   "name": "@dong-victor/dsh-better-sidebar-jupyter",
-  "version": "0.1.0",
-  "description": "Jupyter notebook support for the dsh-better-sidebar editor: .ipynb opens inline as a runnable notebook viewer with Python syntax highlighting, a lazy-start Python kernel (jupyter_client + ipykernel via python/bridge.py), streaming outputs and save-back. Registers the ipynb file viewer through the ctx.betterSidebar service.",
+  "version": "0.2.0",
+  "description": "Jupyter notebook support for the dsh-better-sidebar editor: .ipynb opens inline as a runnable notebook viewer with IDEA/PyCharm-style run mode (Ctrl+Enter / Shift+Enter / run-all shortcuts, IDEA toolbar, gutter run icons, In/Out labels, execution duration, collapsible tracebacks), a lazy-start Python kernel (jupyter_client + ipykernel via python/bridge.py), background execution and save-back. Registers the ipynb file viewer through the ctx.betterSidebar service.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

@@ -13,10 +13,12 @@ import type {} from 'dsh-better-sidebar'
 import type { Context } from 'cordis'
 import { PANEL_CSS } from './jupyter/panel/styles.ts'
 import { NotebookView } from './NotebookView.tsx'
+import { startKernelDotPoller } from './explorerDot.ts'
 
 /** Services required before mounting: the betterSidebar registry (provided
- *  by dsh-better-sidebar's own client half). */
-export const inject = ['betterSidebar']
+ *  by dsh-better-sidebar's own client half) and the session store (the
+ *  explorer kernel-dot poller reads the active session). */
+export const inject = ['betterSidebar', 'sessions']
 
 /** Plugin body. */
 export function apply(ctx: Context): void {
@@ -48,4 +50,9 @@ export function apply(ctx: Context): void {
     }),
     'dsh-better-sidebar-jupyter: ipynb viewer',
   )
+
+  // Explorer indicator: a green dot on notebooks whose kernel is alive
+  // (pulsing while a cell executes). The sidebar has no file-row extension
+  // API, so the poller reconciles dots against the explorer DOM.
+  ctx.effect(() => startKernelDotPoller(ctx), 'dsh-better-sidebar-jupyter: explorer kernel dots')
 }

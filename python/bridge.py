@@ -350,10 +350,37 @@ class Bridge:
 
     # ------------------------------------------------------------ control
 
+    def drain_queue(self, status="interrupted"):
+        """Drop every queued (not yet started) execution, replying ok=false for
+        each so a client waiting on a run-all batch settles instead of hanging.
+        The cell currently executing is NOT touched — the caller decides what
+        to do with it (interrupt grace / restart)."""
+        dropped = []
+        while True:
+            try:
+                dropped.append(self.exec_queue.get_nowait())
+            except queue.Empty:
+                break
+        for cell_id, _code in dropped:
+            emit({
+                "type": "execute_reply",
+                "cell_id": cell_id,
+                "ok": False,
+                "execution_count": None,
+                "status": status,
+                "error": "cancelled",
+            })
+        if dropped:
+            log("info", "dropped %d queued execution(s)" % len(dropped))
+
     def interrupt(self):
         if self.km is None or self.kc is None:
             log("warn", "no kernel to interrupt")
             return
+        # Drop cells queued behind the running one: an interrupt cancels the
+        # whole batch, not just the head (the client sends run-all as one
+        # batch so the bridge owns the queue across browser reconnects).
+        self.drain_queue("interrupted")
         try:
             # Control-channel interrupt_request (message mode): on Windows this
             # is a documented no-op inside ipykernel ("Interrupt message not
@@ -370,6 +397,9 @@ class Bridge:
         if self.km is None or self.kc is None:
             log("warn", "no kernel to restart")
             return
+        # Same batch semantics: a restart cancels cells queued behind the
+        # running one (they would otherwise execute after the fresh kernel).
+        self.drain_queue("restarted")
         self.restarting = True
         try:
             try:

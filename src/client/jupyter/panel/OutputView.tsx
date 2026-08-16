@@ -5,10 +5,11 @@
  * @module dsh-jupyter/client/panel/OutputView
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { MimeBundle, UiOutput } from '../types.ts'
 import { sanitizeHtml } from './sanitize.ts'
 import { renderMarkdown } from './markdown.ts'
+import { tt } from './helpers.ts'
 
 function pickMime(data: MimeBundle): { kind: 'html' | 'image' | 'json' | 'markdown' | 'text' | 'latex'; value: string } | null {
   if (typeof data['text/html'] === 'string') return { kind: 'html', value: data['text/html'] as string }
@@ -54,6 +55,25 @@ function RichOutput({ data }: { data: MimeBundle }): React.JSX.Element | null {
   return <pre>{picked.value}</pre>
 }
 
+/** Collapsible error traceback (IDEA-style: summary row + expand toggle). */
+function ErrorTraceback({ summary, trace }: { summary: string; trace: string[] }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        className="dshjp-error-head"
+        title={expanded ? tt('editor.tracebackCollapse') : tt('editor.tracebackExpand')}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="dshjp-error-toggle">{expanded ? '▼' : '▶'}</span>
+        <span className="dshjp-error-summary">{summary}</span>
+      </button>
+      {expanded && <pre className="dshjp-error-trace">{trace.join('\n')}</pre>}
+    </>
+  )
+}
+
 /** Render one output. */
 export function OutputView({ output }: { output: UiOutput }): React.JSX.Element {
   if (output.outputType === 'stream') {
@@ -68,10 +88,17 @@ export function OutputView({ output }: { output: UiOutput }): React.JSX.Element 
     )
   }
   if (output.outputType === 'error') {
-    const text = output.traceback.length > 0 ? output.traceback.join('\n') : `${output.ename}: ${output.evalue}`
+    // IDEA-style error node: show a summary line, expand to the full
+    // traceback (collapsed by default when there is more than one line).
+    const trace = output.traceback
+    const summary = trace.length > 0 ? trace[trace.length - 1]! : `${output.ename}: ${output.evalue}`
     return (
       <div className="dshjp-output error-out">
-        <pre>{text}</pre>
+        {trace.length > 1 ? (
+          <ErrorTraceback summary={summary} trace={trace} />
+        ) : (
+          <pre className="dshjp-error-trace">{trace.length > 0 ? trace.join('\n') : `${output.ename}: ${output.evalue}`}</pre>
+        )}
       </div>
     )
   }

@@ -25,11 +25,19 @@ export interface SessionScope {
 export const JUPYTER_API = {
   env: '/api/dsh-better-sidebar-jupyter/env',
   notebook: '/api/dsh-better-sidebar-jupyter/notebook',
+  kernels: '/api/dsh-better-sidebar-jupyter/kernels',
   kernelStatus: '/api/dsh-better-sidebar-jupyter/kernel/status',
   kernelStop: '/api/dsh-better-sidebar-jupyter/kernel/stop',
   kernelInterrupt: '/api/dsh-better-sidebar-jupyter/kernel/interrupt',
   kernelRestart: '/api/dsh-better-sidebar-jupyter/kernel/restart',
   kernelWs: '/api/dsh-better-sidebar-jupyter/kernel/ws',
+}
+
+/** One live kernel in the session's workspace (explorer green dot). */
+export interface KernelListEntry {
+  path: string
+  running: boolean
+  busy: boolean
 }
 
 /** Error carrying the route's JSON error message. */
@@ -71,7 +79,12 @@ export interface KernelConnection {
   onFrame: ((frame: KernelServerFrame) => void) | undefined
   /** Fired when the transport closes (with an optional reason). */
   onClose: ((reason?: string) => void) | undefined
-  send(frame: KernelClientFrame): void
+  /**
+   * Send one frame. Returns false when the socket was not open and the frame
+   * was NOT written (the caller keeps the work queued and retries after a
+   * reconnect instead of assuming it left).
+   */
+  send(frame: KernelClientFrame): boolean
   close(): void
   /** Current socket state: 0 connecting, 1 open, 2 closing, 3 closed. */
   readyState(): number
@@ -98,6 +111,13 @@ export class JupyterApi {
     const response = await fetch(JUPYTER_API.env)
     const body = await readJson<{ report: EnvReport }>(response)
     return body.report
+  }
+
+  /** Live kernels under the session's workspace (explorer green-dot poller). */
+  async kernelList(): Promise<KernelListEntry[]> {
+    const response = await fetch(JUPYTER_API.kernels + this.scoped({}))
+    const body = await readJson<{ kernels: KernelListEntry[] }>(response)
+    return body.kernels
   }
 
   async readNotebook(path: string): Promise<unknown> {
@@ -147,7 +167,9 @@ export class JupyterApi {
       send: (frame) => {
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify(frame))
+          return true
         }
+        return false
       },
       close: () => {
         try { socket.close() } catch { /* already closed */ }

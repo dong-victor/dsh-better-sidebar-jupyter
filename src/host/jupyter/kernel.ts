@@ -25,6 +25,48 @@ const IDLE_TTL_MS = Number(process.env.DSH_EXPLORER_KERNEL_IDLE_MS ?? 30 * 60 * 
 /** Bridge events forwarded to browsers (a superset of what the client uses). */
 export type BridgeEvent = Record<string, unknown> & { type: string }
 
+/** One recently completed execution kept for late-attaching browsers. */
+export interface KernelCompletion {
+  cell_id: string
+  outputs: BridgeEvent[]
+  execution_count: number | null
+  ok: boolean
+}
+
+/**
+ * Convert one accumulated nbformat-shaped output record back into the bridge
+ * event shape the browser reducer consumes (replay for late-attaching
+ * sockets). Unknown output types degrade to a log line (never a crash).
+ */
+function nbOutputToBridgeEvent(cellId: string, out: Record<string, unknown>): BridgeEvent {
+  const type = out.output_type
+  if (type === 'stream') {
+    return { type: 'stream', cell_id: cellId, name: out.name === 'stderr' ? 'stderr' : 'stdout', text: String(out.text ?? '') }
+  }
+  if (type === 'display_data' || type === 'update_display_data') {
+    return { type, cell_id: cellId, data: out.data ?? {}, metadata: out.metadata ?? {} }
+  }
+  if (type === 'execute_result') {
+    return {
+      type: 'execute_result',
+      cell_id: cellId,
+      data: out.data ?? {},
+      metadata: out.metadata ?? {},
+      execution_count: typeof out.execution_count === 'number' ? out.execution_count : null,
+    }
+  }
+  if (type === 'error') {
+    return {
+      type: 'error',
+      cell_id: cellId,
+      ename: typeof out.ename === 'string' ? out.ename : 'Error',
+      evalue: typeof out.evalue === 'string' ? out.evalue : '',
+      traceback: Array.isArray(out.traceback) ? out.traceback.filter((line): line is string => typeof line === 'string') : [],
+    }
+  }
+  return { type: 'log', level: 'warn', message: `skipping replay of unknown output ${String(type)}` }
+}
+
 /** Kernel lifecycle summary for the HTTP status route. */
 export interface KernelSummary {
   kernelId: string
@@ -33,6 +75,10 @@ export interface KernelSummary {
   ready: boolean
   attachCount: number
   lastError: string | null
+  /** Whether a cell is currently executing (from bridge status events). */
+  busy: boolean
+  /** The client cell id currently executing, when the bridge reports one. */
+  executingCellId: string | null
 }
 
 /**
@@ -66,7 +112,15 @@ interface KernelEntry {
   indexByCell: Map<string, number>
   /** Whether a cell is currently executing (from bridge status events). */
   busy: boolean
+  /** The client cell id currently executing (from bridge status events). */
+  executingCellId: string | null
   idleTimer: NodeJS.Timeout | null
+  /**
+   * Recently completed executions, kept briefly so a browser that (re)attaches
+   * after the run finished can still receive the outputs + reply it missed
+   * (bounded — evicted oldest-first, and dropped on re-execution).
+   */
+  completedByCell: Map<string, { outputs: Array<Record<string, unknown>>; execution_count: number | null; ok: boolean }>
 }
 
 /** A pending attach waiting for the kernel to become ready. */
@@ -183,7 +237,9 @@ export class KernelManager {
       codeByCell: new Map(),
       indexByCell: new Map(),
       busy: false,
+      executingCellId: null,
       idleTimer: null,
+      completedByCell: new Map(),
     }
     const cwd = dirname(key)
     const proc = spawn(python, ['-u', script], {
@@ -238,10 +294,18 @@ export class KernelManager {
       entry.lastError = typeof event.message === 'string' ? event.message : 'kernel died'
       this.broadcast(entry, { type: 'kernel_state', running: false, ready: false, reason: entry.lastError })
     } else if (event.type === 'status') {
-      // Track busy/idle so the idle shutdown timer never kills a running cell.
+      // Track busy/idle so the idle shutdown timer never kills a running cell
+      // and so a freshly attached browser can learn which cell is in flight.
       entry.busy = event.execution_state === 'busy'
-      if (entry.busy) this.clearIdleTimer(entry)
-      else if (entry.attachCount <= 0) this.scheduleIdleShutdown(key, entry)
+      if (entry.busy) {
+        this.clearIdleTimer(entry)
+        if (typeof event.cell_id === 'string' && event.cell_id !== '') {
+          entry.executingCellId = event.cell_id
+        }
+      } else {
+        entry.executingCellId = null
+        if (entry.attachCount <= 0) this.scheduleIdleShutdown(key, entry)
+      }
     } else if (event.type === 'execute_reply') {
       const cellId = typeof event.cell_id === 'string' ? event.cell_id : ''
       if (cellId !== '') void this.persistRun(key, entry, cellId, event)
@@ -306,6 +370,15 @@ export class KernelManager {
     entry.outputsByCell.delete(cellId)
     entry.codeByCell.delete(cellId)
     entry.indexByCell.delete(cellId)
+    // Keep the completion around briefly (bounded) so a browser that attaches
+    // after this run finished can still receive the outputs + reply it missed.
+    if (outputs.length > 0 || count !== null) {
+      entry.completedByCell.set(cellId, { outputs, execution_count: count, ok: reply.ok !== false })
+      if (entry.completedByCell.size > 200) {
+        const oldest = entry.completedByCell.keys().next().value
+        if (oldest !== undefined) entry.completedByCell.delete(oldest)
+      }
+    }
     if (this.persist === undefined || (outputs.length === 0 && count === null)) return
     try {
       await this.persist(key, cellId, index, source, outputs, count)
@@ -350,10 +423,12 @@ export class KernelManager {
     if (command.op === 'execute') {
       const cellId = typeof command.cell_id === 'string' ? command.cell_id : ''
       if (cellId !== '') {
-        // Record run context for persistence (fresh run resets the outputs).
+        // Record run context for persistence (fresh run resets the outputs
+        // and invalidates any buffered completion for this cell).
         entry.codeByCell.set(cellId, typeof command.code === 'string' ? command.code : '')
         entry.indexByCell.set(cellId, typeof command.index === 'number' ? command.index : -1)
         entry.outputsByCell.set(cellId, [])
+        entry.completedByCell.delete(cellId)
       }
     }
     try {
@@ -432,7 +507,10 @@ export class KernelManager {
   status(key: string): KernelSummary {
     const entry = this.kernels.get(key)
     if (entry === undefined || entry.closed || entry.proc.exitCode !== null) {
-      return { kernelId: key, running: false, python: resolvePythonCommand(), ready: false, attachCount: 0, lastError: null }
+      return {
+        kernelId: key, running: false, python: resolvePythonCommand(), ready: false,
+        attachCount: 0, lastError: null, busy: false, executingCellId: null,
+      }
     }
     return {
       kernelId: key,
@@ -441,7 +519,83 @@ export class KernelManager {
       ready: entry.ready,
       attachCount: entry.attachCount,
       lastError: entry.lastError,
+      busy: entry.busy,
+      executingCellId: entry.executingCellId,
     }
+  }
+
+  /**
+   * The state a freshly attached browser needs to re-sync a run that started
+   * while it was away: whether the kernel is busy, which client cell is
+   * executing (plus the cell index captured when the run started — the
+   * fallback a re-attached browser uses when its cell ids differ), that
+   * cell's accumulated outputs so far (so the reopened notebook shows the
+   * live partial output instead of an idle cell), the cells still waiting in
+   * the batch, and any recently completed executions this browser may have
+   * missed.
+   */
+  attachState(key: string): {
+    busy: boolean
+    executingCellId: string | null
+    index: number
+    outputs: BridgeEvent[]
+    pendingCells: Array<{ cellId: string; index: number }>
+    completions: KernelCompletion[]
+  } {
+    const entry = this.kernels.get(key)
+    if (entry === undefined || entry.closed || entry.proc.exitCode !== null) {
+      return { busy: false, executingCellId: null, index: -1, outputs: [], pendingCells: [], completions: [] }
+    }
+    const completions: KernelCompletion[] = []
+    for (const [cellId, done] of entry.completedByCell) {
+      completions.push({
+        cell_id: cellId,
+        outputs: done.outputs.map((out) => nbOutputToBridgeEvent(cellId, out)),
+        execution_count: done.execution_count,
+        ok: done.ok,
+      })
+    }
+    const executing = entry.busy && entry.executingCellId !== null ? entry.executingCellId : null
+    // Every cell handed to the bridge and still awaiting its execute_reply:
+    // the in-flight one plus the queued tail of a run-all batch. The client
+    // uses these (mapped through its local ids) to show the whole batch as
+    // running/queued after a session switch or a close-and-reopen.
+    const pendingCells: Array<{ cellId: string; index: number }> = []
+    for (const cellId of entry.codeByCell.keys()) {
+      pendingCells.push({ cellId, index: entry.indexByCell.get(cellId) ?? -1 })
+    }
+    return {
+      busy: entry.busy,
+      executingCellId: executing,
+      index: executing !== null ? (entry.indexByCell.get(executing) ?? -1) : -1,
+      outputs: executing !== null
+        ? (entry.outputsByCell.get(executing) ?? []).map((out) => nbOutputToBridgeEvent(executing, out))
+        : [],
+      pendingCells,
+      completions,
+    }
+  }
+
+  /**
+   * Every live kernel, for the explorer's "running notebook" indicator.
+   * `inside` (optional) filters to paths under a directory (the route passes
+   * the session's canonical cwd).
+   */
+  list(inside?: (path: string) => boolean): Array<{ key: string; running: boolean; busy: boolean }> {
+    const out: Array<{ key: string; running: boolean; busy: boolean }> = []
+    for (const [key, entry] of this.kernels) {
+      if (entry.closed || entry.proc.exitCode !== null) continue
+      if (inside !== undefined && !inside(key)) continue
+      out.push({ key, running: true, busy: entry.busy })
+    }
+    return out
+  }
+
+  /** Drop the buffered completions for one kernel (they were just replayed). */
+  clearCompletions(key: string): void {
+    const entry = this.kernels.get(key)
+    if (entry === undefined) return
+    entry.completedByCell.clear()
   }
 
   /** Shut down every kernel (plugin dispose). */

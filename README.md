@@ -30,11 +30,35 @@ cd ~/.dsh && dsh plugin --profile web add @dong-victor/dsh-better-sidebar-jupyte
 
 - `.ipynb` opens in the sidebar editor (single-click in the explorer / any
   open-path flow), rendered by the inline notebook viewer.
-- Toolbar: run / run-all / add-below / delete cell / convert code↔markdown,
-  kernel start / interrupt / restart / shutdown, and save (Ctrl/Cmd+S).
+- **IDEA/PyCharm-style run mode** — shortcuts and toolbar mirror IntelliJ's
+  Jupyter support (Windows keymap):
+  - `Ctrl+Enter` — run the current cell (stays in the cell for editing).
+  - `Shift+Enter` — run the current cell **and select the cell below**; when
+    there is no cell below, a new one is created (IDEA behavior).
+  - `Ctrl+Alt+Shift+Enter` — run all code cells.
+  - `Ctrl+F2` — interrupt the running kernel.
+  - `Ctrl+Home` / `Ctrl+End` — move the caret to the start/end of the current
+    cell; outside an editor, focus the first/last cell of the notebook.
+  - `Ctrl/Cmd+S` — save.
+- **IDEA toolbar**: ▶ Run cell and select below · ▶▶ Run all · ■ Interrupt ·
+  ↻ Restart · ⏻ Shutdown · 🧹 Clear all outputs · ＋ Add cell below · ↑/↓ Move
+  cell · cell-type selector (Code/Markdown/Raw) · ⇡/⇣ select above/below ·
+  kernel status widget (state + kernel name) · save.
+- **Per-cell IDEA affordances**: green ▶ gutter run button on every code cell
+  (hover/selected), `In [n]` execution counter, `Out[n]` on results, and the
+  **execution duration in the cell's lower-left corner** (hover shows the
+  completion date/time). Error outputs render as **collapsible tracebacks**
+  (IDEA-style summary row + expand toggle).
 - Lazy kernel: the Python bridge starts on the first run — no startup cost for
   plain browsing. Kernels keep running in the background while the editor is
-  closed, and finished executions are written back into the `.ipynb` file.
+  closed, and finished executions are written back into the `.ipynb` file
+  (run-all survives tab switches / session switches / reconnects). Reopening a
+  notebook — or coming back after switching sessions — **re-syncs the whole
+  batch**: the executing cell shows as running with its latest partial output,
+  and the queued tail of a run-all batch shows as queued.
+- **Explorer indicator**: notebooks whose kernel is alive get a **green dot**
+  next to their file name in the sidebar file browser (pulsing while a cell
+  executes), so a background run is visible even with the notebook closed.
 - Syntax highlighting follows the app theme (IDEA/Darcula-style Python
   highlighting, `--dsw-*` tokens).
 

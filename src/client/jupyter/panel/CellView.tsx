@@ -1,6 +1,8 @@
 /**
  * One notebook cell: code editor (syntax-highlighted textarea overlay),
- * rendered/editable markdown, outputs, and cell actions.
+ * rendered/editable markdown, outputs, and cell actions — IDEA-style: a
+ * gutter run button, "In [n]" label, execution duration in the corner, and
+ * Ctrl+Enter (run in place) / Shift+Enter (run + select below) semantics.
  * @module dsh-jupyter/client/panel/CellView
  */
 
@@ -18,11 +20,12 @@ export interface CellViewProps {
   selected: boolean
   /** True while this cell's execution is in flight. */
   executing: boolean
-  kernelConnected: boolean
+  /** Formats a run duration (IDEA-style corner label). */
+  formatDuration(ms: number): string
   onSelect(): void
-  onRun(id: string): void
+  /** Run the cell; `selectBelow` = Shift+Enter semantics (advance/insert). */
+  onRunCell(id: string, selectBelow: boolean): void
   onChange(id: string, source: string): void
-  onConvert(id: string): void
   onDelete(id: string): void
   onMove(id: string, dir: -1 | 1): void
   onAddBelow(id: string): void
@@ -30,12 +33,12 @@ export interface CellViewProps {
 }
 
 /** A code editor with a highlighted overlay behind a transparent-text textarea. */
-function CodeEditor({ value, onChange, onRun, executing, kernelConnected }: {
+function CodeEditor({ value, onChange, onRun, onRunSelectBelow, executing }: {
   value: string
   onChange(value: string): void
   onRun(): void
+  onRunSelectBelow(): void
   executing: boolean
-  kernelConnected: boolean
 }): React.JSX.Element {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const hlRef = useRef<HTMLPreElement>(null)
@@ -60,9 +63,20 @@ function CodeEditor({ value, onChange, onRun, executing, kernelConnected }: {
   useEffect(() => { autoGrow() }, [value])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey || event.metaKey)) {
-      event.preventDefault()
-      if (kernelConnected && !executing) onRun()
+    if (event.key === 'Enter') {
+      // IDEA: Ctrl+Enter runs in place, Shift+Enter runs and selects below.
+      // Alt combos (Ctrl+Alt+Shift+Enter = run all) bubble to the editor.
+      if (event.altKey) return
+      if (event.shiftKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault()
+        if (!executing) onRunSelectBelow()
+        return
+      }
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        if (!executing) onRun()
+        return
+      }
       return
     }
     if (event.key === 'Tab' && !event.shiftKey) {
@@ -101,7 +115,11 @@ function CodeEditor({ value, onChange, onRun, executing, kernelConnected }: {
 }
 
 /** Rendered or editable markdown. */
-function MarkdownBody({ cell, onCommit }: { cell: UiCell; onCommit(source: string): void }): React.JSX.Element {
+function MarkdownBody({ cell, onCommit, onRunSelectBelow }: {
+  cell: UiCell
+  onCommit(source: string): void
+  onRunSelectBelow(): void
+}): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(cell.source)
   const html = useMemo(() => renderMarkdown(cell.source), [cell.source])
@@ -119,10 +137,16 @@ function MarkdownBody({ cell, onCommit }: { cell: UiCell; onCommit(source: strin
         autoFocus
         onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); setEditing(false) }
-          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.altKey) {
             event.preventDefault()
             onCommit(draft)
             setEditing(false)
+          }
+          if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault()
+            onCommit(draft)
+            setEditing(false)
+            onRunSelectBelow()
           }
         }}
         onChange={(event) => { setDraft(event.target.value) }}
@@ -146,16 +170,12 @@ function MarkdownBody({ cell, onCommit }: { cell: UiCell; onCommit(source: strin
 
 /** One cell block. */
 export function CellView(props: CellViewProps): React.JSX.Element {
-  const { cell, index, total, selected, executing, kernelConnected } = props
+  const { cell, index, total, selected, executing, formatDuration } = props
   const cellClass = [
     'dshjp-cell',
     selected ? 'selected' : '',
     executing ? 'running' : '',
   ].filter(Boolean).join(' ')
-
-  const run = (): void => {
-    if (kernelConnected && !executing) props.onRun(cell.id)
-  }
 
   return (
     <div
@@ -163,51 +183,58 @@ export function CellView(props: CellViewProps): React.JSX.Element {
       data-cell-id={cell.id}
       onClick={props.onSelect}
     >
-      <div className="dshjp-cell-gutter" />
+      <div className="dshjp-cell-gutter">
+        {cell.type === 'code' && (
+          <button
+            type="button"
+            className={`dshjp-gutter-run${executing ? ' busy' : ''}`}
+            title={executing ? tt('editor.executing') : tt('editor.run')}
+            disabled={executing}
+            onClick={(e) => { e.stopPropagation(); props.onRunCell(cell.id, false) }}
+          >▶</button>
+        )}
+      </div>
       <div className="dshjp-cell-header">
         <span className="dshjp-cell-type">{cell.type}</span>
+        {cell.queued && <span className="dshjp-cell-queued">{tt('editor.queued')}</span>}
         <span className="dshjp-cell-actions">
-          {cell.type === 'code' && (
-            <button type="button" className="dshjp-cell-action" disabled={!kernelConnected || executing} onClick={(e) => { e.stopPropagation(); run() }}>
-              {executing ? tt('editor.executing') : tt('editor.run')}
+          {cell.type === 'code' && cell.outputs.length > 0 && (
+            <button type="button" className="dshjp-cell-action" title={tt('editor.clearOutputs')} onClick={(e) => { e.stopPropagation(); props.onClearOutputs(cell.id) }}>
+              🧹
             </button>
           )}
-          {cell.type === 'code' && (
-            <button type="button" className="dshjp-cell-action" disabled={cell.outputs.length === 0} onClick={(e) => { e.stopPropagation(); props.onClearOutputs(cell.id) }}>
-              {tt('editor.clearOutputs')}
-            </button>
-          )}
-          <button type="button" className="dshjp-cell-action" onClick={(e) => { e.stopPropagation(); props.onConvert(cell.id) }}>
-            {tt('editor.convert')}
+          <button type="button" className="dshjp-cell-action" title={tt('editor.addBelow')} onClick={(e) => { e.stopPropagation(); props.onAddBelow(cell.id) }}>
+            ＋
           </button>
-          <button type="button" className="dshjp-cell-action" onClick={(e) => { e.stopPropagation(); props.onAddBelow(cell.id) }}>
-            {tt('editor.addBelow')}
-          </button>
-          <button type="button" className="dshjp-cell-action" disabled={index === 0} onClick={(e) => { e.stopPropagation(); props.onMove(cell.id, -1) }}>
+          <button type="button" className="dshjp-cell-action" title={tt('editor.moveUp')} disabled={index === 0} onClick={(e) => { e.stopPropagation(); props.onMove(cell.id, -1) }}>
             ↑
           </button>
-          <button type="button" className="dshjp-cell-action" disabled={index === total - 1} onClick={(e) => { e.stopPropagation(); props.onMove(cell.id, 1) }}>
+          <button type="button" className="dshjp-cell-action" title={tt('editor.moveDown')} disabled={index === total - 1} onClick={(e) => { e.stopPropagation(); props.onMove(cell.id, 1) }}>
             ↓
           </button>
-          <button type="button" className="dshjp-cell-action" onClick={(e) => { e.stopPropagation(); props.onDelete(cell.id) }}>
+          <button type="button" className="dshjp-cell-action" title={tt('editor.delete')} onClick={(e) => { e.stopPropagation(); props.onDelete(cell.id) }}>
             ✕
           </button>
         </span>
         {cell.type === 'code' && cell.executionCount !== null && (
-          <span className="dshjp-cell-count">[{cell.executionCount}]</span>
+          <span className="dshjp-cell-count">{tt('editor.inCount', { count: cell.executionCount })}</span>
         )}
       </div>
       {cell.type === 'code' && (
         <CodeEditor
           value={cell.source}
           onChange={(source) => props.onChange(cell.id, source)}
-          onRun={() => props.onRun(cell.id)}
+          onRun={() => props.onRunCell(cell.id, false)}
+          onRunSelectBelow={() => props.onRunCell(cell.id, true)}
           executing={executing}
-          kernelConnected={kernelConnected}
         />
       )}
       {cell.type === 'markdown' && (
-        <MarkdownBody cell={cell} onCommit={(source) => props.onChange(cell.id, source)} />
+        <MarkdownBody
+          cell={cell}
+          onCommit={(source) => props.onChange(cell.id, source)}
+          onRunSelectBelow={() => props.onRunCell(cell.id, true)}
+        />
       )}
       {cell.type === 'raw' && (
         <div className="dshjp-markdown" style={{ opacity: 0.8 }}>
@@ -218,6 +245,12 @@ export function CellView(props: CellViewProps): React.JSX.Element {
         <div className="dshjp-outputs">
           {cell.outputs.map((output, i) => <OutputView key={i} output={output} />)}
         </div>
+      )}
+      {cell.type === 'code' && !executing && cell.runMs !== null && (
+        <span
+          className="dshjp-cell-duration"
+          title={cell.runAt !== null ? tt('editor.runFinishedAt', { time: new Date(cell.runAt).toLocaleString() }) : undefined}
+        >{formatDuration(cell.runMs)}</span>
       )}
     </div>
   )

@@ -233,6 +233,56 @@ export const PANEL_CSS = /* css */ `
 .dshjp-toolbar .spacer { flex: 1; }
 .dshjp-toolbar .sep { width: 1px; align-self: stretch; background: var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.25)); margin: 0 2px; }
 
+/* IDEA-style compact icon toolbar buttons. */
+.dshjp-tbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+
+.dshjp-tbtn:hover { background: var(--dsw-specific-sidebar-nav-item-hover); color: var(--dsw-alias-label-primary); }
+.dshjp-tbtn:disabled { opacity: .4; cursor: default; }
+.dshjp-tbtn.primary { color: #4f8cff; }
+.dshjp-tbtn.primary:hover { background: color-mix(in srgb, #4f8cff 18%, transparent); }
+
+/* IDEA-style: the Stop/Interrupt button glows red while a cell is running. */
+.dshjp-tbtn.stop-active {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #dc2626 18%, transparent);
+  animation: dshjp-pulse 1.2s infinite;
+}
+.dshjp-tbtn.stop-active:hover { background: color-mix(in srgb, #dc2626 30%, transparent); color: #ff8080; }
+
+.dshjp-cell-type-select {
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 5px;
+  border: 1px solid var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.3));
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+  flex: none;
+}
+
+.dshjp-kernel-name {
+  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-size: 11px;
+  opacity: .8;
+  margin-left: 2px;
+}
+
 .dshjp-filename {
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
@@ -267,6 +317,31 @@ export const PANEL_CSS = /* css */ `
 .dshjp-cell.selected .dshjp-cell-gutter { background: #4f8cff; }
 .dshjp-cell.running .dshjp-cell-gutter { background: #d97706; animation: dshjp-pulse 1s infinite; }
 
+/* IDEA-style gutter run button (green ▶, top-left of the cell). */
+.dshjp-gutter-run {
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #2e9e5b;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.dshjp-cell:hover .dshjp-gutter-run, .dshjp-cell.selected .dshjp-gutter-run { opacity: 1; }
+.dshjp-gutter-run:hover { background: color-mix(in srgb, #2e9e5b 22%, transparent); }
+.dshjp-gutter-run:disabled { cursor: default; }
+.dshjp-gutter-run.busy { color: #d97706; animation: dshjp-pulse 1s infinite; opacity: 1; }
+
 .dshjp-cell-header {
   display: flex;
   align-items: center;
@@ -278,7 +353,48 @@ export const PANEL_CSS = /* css */ `
 }
 
 .dshjp-cell-type { font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.dshjp-cell-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.dshjp-cell-count { margin-left: auto; font-variant-numeric: tabular-nums; font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace); }
+
+/* Queued (run-all tail) cell indicator. */
+.dshjp-cell-queued {
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary, #8a8f98);
+  border: 1px solid var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.3));
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.5;
+}
+
+/* --- explorer "running notebook" green dot ------------------------------- */
+
+/* A notebook whose kernel is alive gets a green dot; it pulses while a cell
+   is executing. Inserted by the client poller next to the file name. */
+.dshjp-file-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px 0 4px;
+  border-radius: 50%;
+  background: #2e9e5b;
+  align-self: center;
+}
+.dshjp-file-dot.busy {
+  background: #2e9e5b;
+  animation: dshjp-pulse 1s infinite;
+}
+
+/* IDEA-style execution duration in the lower-left corner of the cell. */
+.dshjp-cell-duration {
+  position: absolute;
+  left: 8px;
+  bottom: 4px;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary, #8a8f98);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  cursor: default;
+}
 
 .dshjp-cell-actions {
   display: none;
@@ -455,6 +571,28 @@ export const PANEL_CSS = /* css */ `
 }
 
 .dshjp-output.error-out pre { background: none; color: #fca5a5; }
+
+/* IDEA-style collapsible traceback header. */
+.dshjp-error-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: #fca5a5;
+  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dshjp-error-head:hover { background: color-mix(in srgb, #dc2626 14%, transparent); }
+.dshjp-error-toggle { flex: none; font-size: 10px; line-height: 1.7; }
+.dshjp-error-summary { word-break: break-word; white-space: pre-wrap; }
+.dshjp-error-trace { max-height: 420px; overflow: auto; }
 
 .dshjp-output .out-count {
   display: inline-block;

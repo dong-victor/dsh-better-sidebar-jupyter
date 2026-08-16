@@ -13,6 +13,8 @@ export interface EditorState {
   nb: UiNotebook
   kernel: KernelPhase
   kernelReason: string
+  /** Kernel name reported by the bridge (e.g. "python3"), for the status widget. */
+  kernelName: string | null
   /** Cell id currently executing (in flight). */
   executingId: string | null
   /** The run-all queue (cell ids still to run). */
@@ -31,13 +33,18 @@ export type EditorAction =
   | { type: 'event'; event: KernelEvent }
   | { type: 'setSource'; id: string; source: string }
   | { type: 'convert'; id: string }
-  | { type: 'addCell'; index: number; cellType: 'code' | 'markdown' }
+  | { type: 'setCellType'; id: string; cellType: 'code' | 'markdown' | 'raw' }
+  | { type: 'addCell'; index: number; cellType: 'code' | 'markdown' | 'raw' }
+  | { type: 'addCellBelow'; id: string }
   | { type: 'deleteCell'; id: string }
   | { type: 'moveCell'; id: string; dir: -1 | 1 }
   | { type: 'select'; id: string }
+  | { type: 'selectAdjacent'; dir: -1 | 1 }
   | { type: 'clearOutputs'; id: string }
-  | { type: 'beginExecute'; id: string }
-  | { type: 'endExecute'; id: string; ok: boolean }
+  | { type: 'clearAllOutputs' }
+  | { type: 'markQueued'; ids: string[] }
+  | { type: 'beginExecute'; id: string; at: number }
+  | { type: 'endExecute'; id: string; ok: boolean; at: number }
   | { type: 'setExecuting'; id: string | null }
   | { type: 'markSaved' }
 
@@ -64,17 +71,48 @@ function patchCell(nb: UiNotebook, id: string, patch: (cell: UiCell) => UiCell):
   return { ...nb, cells, dirty: true }
 }
 
+/** Convert the cell at `index` to another type (IDEA cell-type selector). */
+function convertCell(state: EditorState, index: number, nextType: UiCell['type']): EditorState {
+  const cell = state.nb.cells[index]!
+  const next: UiCell = nextType === 'code'
+    ? { ...cell, type: 'code', outputs: cell.type === 'code' ? cell.outputs : [], executionCount: cell.type === 'code' ? cell.executionCount : null, running: false }
+    : { ...cell, type: nextType, outputs: [], executionCount: null, running: false }
+  const cells = [...state.nb.cells]
+  cells[index] = next
+  return { ...state, nb: { ...state.nb, cells, dirty: true } }
+}
+
 /** Apply one kernel event to the document (pure). */
 export function applyKernelEvent(state: EditorState, event: KernelEvent): EditorState {
   let nb = state.nb
   const cellId = (event as { cell_id?: string | null }).cell_id ?? null
   if (event.type === 'ready') {
-    return { ...state, kernel: 'ready', kernelReason: '', kernelError: null }
+    return {
+      ...state,
+      kernel: 'ready',
+      kernelReason: '',
+      kernelError: null,
+      kernelName: typeof event.kernel_name === 'string' && event.kernel_name !== '' ? event.kernel_name : state.kernelName,
+    }
   }
   if (event.type === 'status') {
     const running = event.execution_state === 'busy'
     if (cellId !== null && cellId !== undefined) {
-      nb = patchCell(nb, cellId, (cell) => ({ ...cell, running }))
+      // Jupyter semantics: when a cell STARTS executing, clear its previous
+      // outputs first (a re-run must not stack on the old log). The busy
+      // transition also covers cells in a run-all batch beyond the head,
+      // whose outputs are cleared when the bridge actually starts them — and
+      // a queued cell stops being queued once it starts. The cell that turns
+      // busy BECOMES the in-flight cell (executingId), so a reopened notebook
+      // whose run was replayed shows the running indicator, not just output.
+      nb = patchCell(nb, cellId, (cell) => ({
+        ...cell,
+        running,
+        queued: cell.queued && !running ? cell.queued : false,
+        outputs: running && !cell.running ? [] : cell.outputs,
+      }))
+      if (running) return { ...state, nb, executingId: cellId }
+      return { ...state, nb }
     } else if (state.executingId !== null) {
       nb = patchCell(nb, state.executingId, (cell) => ({ ...cell, running }))
     }
@@ -125,7 +163,14 @@ export function applyKernelEvent(state: EditorState, event: KernelEvent): Editor
     return { ...state, nb, executingId: null }
   }
   if (event.type === 'kernel_died') {
-    return { ...state, kernel: 'dead', kernelReason: event.message, executingId: null, runQueue: [] }
+    return {
+      ...state,
+      kernel: 'dead',
+      kernelReason: event.message,
+      executingId: null,
+      runQueue: [],
+      nb: { ...state.nb, cells: state.nb.cells.map((c) => (c.running || c.queued ? { ...c, running: false, queued: false } : c)) },
+    }
   }
   if (event.type === 'log') {
     return state
@@ -140,8 +185,22 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, nb: action.nb, loadError: null, selectedId: action.nb.cells[0]?.id ?? null }
     case 'loadError':
       return { ...state, loadError: action.error }
-    case 'kernelPhase':
+    case 'kernelPhase': {
+      if (action.phase === 'dead') {
+        // A dead kernel cannot be executing anything: clear every cell's
+        // running/queued flags (and the executing id) so a cell never spins
+        // forever after a deliberate shutdown or an unrecoverable disconnect.
+        let nb = state.nb
+        if (state.executingId !== null || state.nb.cells.some((c) => c.running || c.queued)) {
+          nb = {
+            ...state.nb,
+            cells: state.nb.cells.map((cell) => (cell.running || cell.queued ? { ...cell, running: false, queued: false } : cell)),
+          }
+        }
+        return { ...state, nb, kernel: 'dead', kernelReason: action.reason ?? state.kernelReason, executingId: null }
+      }
       return { ...state, kernel: action.phase, kernelReason: action.reason ?? state.kernelReason }
+    }
     case 'kernelError':
       return { ...state, kernelError: action.message, kernel: 'dead' }
     case 'event':
@@ -158,12 +217,24 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       if (index === -1) return state
       const cell = state.nb.cells[index]!
       const nextType: UiCell['type'] = cell.type === 'code' ? 'markdown' : 'code'
-      const next: UiCell = nextType === 'code'
-        ? { ...cell, type: 'code', outputs: cell.type === 'code' ? cell.outputs : [], executionCount: cell.type === 'code' ? cell.executionCount : null, running: false }
-        : { ...cell, type: 'markdown', outputs: [], executionCount: null, running: false }
+      return convertCell(state, index, nextType)
+    }
+    case 'setCellType': {
+      const index = findIndex(state.nb, action.id)
+      if (index === -1 || state.nb.cells[index]?.type === action.cellType) return state
+      return convertCell(state, index, action.cellType)
+    }
+    case 'addCellBelow': {
+      const index = findIndex(state.nb, action.id)
+      if (index === -1) return state
       const cells = [...state.nb.cells]
-      cells[index] = next
-      return { ...state, nb: { ...state.nb, cells, dirty: true } }
+      const created = makeCell('code')
+      cells.splice(index + 1, 0, created)
+      return {
+        ...state,
+        nb: { ...state.nb, cells, dirty: true },
+        selectedId: created.id,
+      }
     }
     case 'addCell': {
       const index = Math.max(0, Math.min(state.nb.cells.length, action.index))
@@ -189,6 +260,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case 'select':
       return { ...state, selectedId: action.id }
+    case 'selectAdjacent': {
+      if (state.selectedId === null) return state
+      const index = findIndex(state.nb, state.selectedId)
+      if (index === -1) return state
+      const target = index + action.dir
+      const next = state.nb.cells[target]
+      return next === undefined ? state : { ...state, selectedId: next.id }
+    }
     case 'clearOutputs': {
       const index = findIndex(state.nb, action.id)
       if (index === -1) return state
@@ -196,18 +275,54 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       cells[index] = { ...cells[index]!, outputs: [] }
       return { ...state, nb: { ...state.nb, cells, dirty: true } }
     }
+    case 'clearAllOutputs': {
+      const cells = state.nb.cells.map((cell) =>
+        cell.type === 'code' && cell.outputs.length > 0 ? { ...cell, outputs: [] } : cell,
+      )
+      return { ...state, nb: { ...state.nb, cells, dirty: true } }
+    }
+    case 'markQueued': {
+      // Re-sync the run-all batch state after a session switch / reopen: the
+      // ids the host still has queued become "queued" here (running cells
+      // stay running; everything else clears its queued flag).
+      const set = new Set(action.ids)
+      const cells = state.nb.cells.map((cell) =>
+        cell.queued !== (set.has(cell.id) && !cell.running) ? { ...cell, queued: set.has(cell.id) && !cell.running } : cell,
+      )
+      return { ...state, nb: { ...state.nb, cells } }
+    }
     case 'beginExecute': {
       const index = findIndex(state.nb, action.id)
       if (index === -1) return state
       const cells = [...state.nb.cells]
-      cells[index] = { ...cells[index]!, running: true }
+      cells[index] = {
+        ...cells[index]!,
+        running: true,
+        queued: false,
+        // Jupyter semantics: a new run starts with a clean output area.
+        outputs: [],
+        runMs: null,
+        runAt: null,
+        runStartedAt: action.at,
+      }
       return { ...state, nb: { ...state.nb, cells }, executingId: action.id, kernelError: null }
     }
     case 'endExecute': {
       const index = findIndex(state.nb, action.id)
       if (index === -1) return { ...state, executingId: null }
+      const cell = state.nb.cells[index]!
+      const started = cell.runStartedAt
       const cells = [...state.nb.cells]
-      cells[index] = { ...cells[index]!, running: false }
+      cells[index] = {
+        ...cell,
+        running: false,
+        queued: false,
+        // IDEA-style duration: measured from beginExecute; unknown for runs
+        // the client never saw (replayed completions) — show no duration.
+        runMs: started !== null ? Math.max(0, action.at - started) : null,
+        runAt: action.at,
+        runStartedAt: null,
+      }
       return { ...state, nb: { ...state.nb, cells }, executingId: null }
     }
     case 'setExecuting':
@@ -226,6 +341,7 @@ export function initialEditorState(path: string): EditorState {
     nb: { cells: [], metadata: {}, nbformat: 4, nbformatMinor: 5, dirty: false },
     kernel: 'idle',
     kernelReason: '',
+    kernelName: null,
     executingId: null,
     runQueue: [],
     selectedId: null,

@@ -1,8 +1,8 @@
 {
   "id": "@dong-victor/dsh-better-sidebar-jupyter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "./lib/index.js",
-  "description": "dsh-better-sidebar 的 Jupyter 笔记本支持：.ipynb 在侧边栏编辑器中内联打开为可运行的笔记本视图（Python 语法高亮、懒启动 Python 内核、流式输出、保存回写），通过 ctx.betterSidebar 服务注册 ipynb 文件预览器",
+  "description": "dsh-better-sidebar 的 Jupyter 笔记本支持：.ipynb 在侧边栏编辑器中内联打开为可运行的笔记本视图，严格参照 IDEA/PyCharm 运行模式（Ctrl+Enter / Shift+Enter / Ctrl+Alt+Shift+Enter 快捷键、IDEA 风格工具栏、单元格 gutter 运行按钮、In/Out 编号、执行耗时角标、可折叠 Traceback），懒启动 Python 内核、后台执行与保存回写，通过 ctx.betterSidebar 服务注册 ipynb 文件预览器",
   "engines": {
     "dsh": ">=0.0.1"
   },

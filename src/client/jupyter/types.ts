@@ -24,6 +24,14 @@ export interface UiCell {
   outputs: UiOutput[]
   executionCount: number | null
   running: boolean
+  /** True while the cell sits in the host's execution queue (run-all tail). */
+  queued: boolean
+  /** Last run duration in ms (UI-only, IDEA-style "1.2 s" corner label). */
+  runMs: number | null
+  /** Timestamp (epoch ms) when the last run finished (hover tooltip). */
+  runAt: number | null
+  /** Timestamp (epoch ms) when the last run started (internal). */
+  runStartedAt: number | null
 }
 
 /** The UI notebook document. */
@@ -68,11 +76,26 @@ export interface KernelSummary {
   ready: boolean
   attachCount: number
   lastError: string | null
+  /** Whether a cell is currently executing. */
+  busy: boolean
+  /** The client cell id currently executing (when the bridge reports one). */
+  executingCellId: string | null
 }
 
 /** Server -> client kernel WebSocket frames. */
 export type KernelServerFrame =
-  | { type: 'kernel_state'; running: boolean; ready: boolean; reason?: string; key?: string }
+  | {
+      type: 'kernel_state'
+      running: boolean
+      ready: boolean
+      reason?: string
+      key?: string
+      busy?: boolean
+      cellId?: string
+      index?: number
+      /** Cells the host still has queued (run-all tail), for batch re-sync. */
+      pendingCells?: Array<{ cellId: string; index: number }>
+    }
   | { type: 'kernel_error'; message: string }
   | { type: 'event'; event: KernelEvent }
 
