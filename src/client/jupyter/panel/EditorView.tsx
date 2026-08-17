@@ -61,6 +61,8 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
   /** Resolves when the mount-time notebook load finishes (kernel attach is
    *  sequenced after it so replayed in-flight events land on real cells). */
   const loadPromiseRef = useRef<Promise<void> | null>(null)
+  /** The notebook scroll container (auto-scrolled to the latest output). */
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   /** Host cell id -> local cell id, for a run started before a session
    *  switch whose ids no longer match this document (index fallback). */
   const remapRef = useRef<Map<string, string>>(new Map())
@@ -130,6 +132,23 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
       setSaving(false)
     }
   }, [api, path])
+
+  /**
+   * Clear one cell's outputs and persist the cleared state to the .ipynb —
+   * otherwise reopening the notebook would show the deleted logs again (the
+   * file still holds them). The save is deferred so the reducer's cleared
+   * document is what gets written.
+   */
+  const clearOutputs = useCallback((id: string): void => {
+    dispatch({ type: 'clearOutputs', id })
+    setTimeout(() => void save(), 0)
+  }, [save])
+
+  /** Clear every cell's outputs and persist the cleared state to the file. */
+  const clearAllOutputs = useCallback((): void => {
+    dispatch({ type: 'clearAllOutputs' })
+    setTimeout(() => void save(), 0)
+  }, [save])
 
   // ------------------------------------------------------------ lifecycle
 
@@ -362,6 +381,26 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
     }
   }, [state.kernel, requestRun, flush])
 
+  /**
+   * Scroll the latest output into view: the notebook container to the bottom
+   * AND every overflowed output block (the <pre> logs) of the executing cell
+   * to the bottom — a long stream's scrollbar lives inside the cell output,
+   * not the container, and must follow the newest chunk too.
+   */
+  const autoScroll = useCallback((): void => {
+    const el = scrollRef.current
+    if (el !== null) el.scrollTop = el.scrollHeight
+    const runningId = stateRef.current.executingId
+    if (runningId === null) return
+    const cellEl = document.querySelector(`[data-cell-id="${CSS.escape(runningId)}"]`)
+    const outputs = cellEl?.querySelector('.dshjp-outputs')
+    if (outputs !== null && outputs !== undefined) {
+      outputs.querySelectorAll('pre').forEach((pre) => {
+        if (pre.scrollHeight > pre.clientHeight) pre.scrollTop = pre.scrollHeight
+      })
+    }
+  }, [])
+
   // Load the notebook once. The kernel is NOT connected here — it starts
   // lazily on the first run or an explicit "start kernel".
   useEffect(() => {
@@ -374,6 +413,9 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
         const raw = await api.readNotebook(path)
         if (disposed) return
         dispatch({ type: 'load', nb: notebookFromJson(raw) })
+        // Opening the notebook: jump to the bottom so the latest output is
+        // visible (the last executed cell / its logs).
+        requestAnimationFrame(() => { if (!disposed) autoScroll() })
       } catch (error) {
         if (!disposed) dispatch({ type: 'loadError', error: errorMessage(error) })
       }
@@ -388,7 +430,14 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
         wsRef.current = null
       }
     }
-  }, [path, api, cancelReconnect])
+  }, [path, api, cancelReconnect, autoScroll])
+
+  // While any cell is executing, keep the scroll position at the bottom so
+  // the latest output stays visible (streaming logs).
+  useEffect(() => {
+    const anyRunning = state.executingId !== null || state.nb.cells.some((c) => c.running)
+    if (anyRunning) autoScroll()
+  }, [state.nb, state.executingId, autoScroll])
 
   // Reopening a notebook whose kernel is still running in the background:
   // attach to it right away so execution state and any in-flight stream stay
@@ -540,7 +589,7 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
           className="dshjp-tbtn"
           title={tt('editor.clearAllOutputs')}
           disabled={!hasOutputs}
-          onClick={() => dispatch({ type: 'clearAllOutputs' })}
+          onClick={clearAllOutputs}
         >🧹</button>
         <button
           type="button"
@@ -596,7 +645,7 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
       {saveError !== null && <div className="dshjp-banner err">{tt('editor.saveFailed', { error: saveError })}</div>}
 
       <div className="dshjp-body">
-        <div className="dshjp-scroll">
+        <div className="dshjp-scroll" ref={scrollRef}>
           <div className="dshjp-cells">
             {state.nb.cells.map((cell, index) => (
               <CellView
@@ -613,7 +662,7 @@ export function EditorView({ path, api, onBack }: EditorViewProps): React.JSX.El
                 onDelete={(id) => dispatch({ type: 'deleteCell', id })}
                 onMove={(id, dir) => dispatch({ type: 'moveCell', id, dir })}
                 onAddBelow={(id) => dispatch({ type: 'addCellBelow', id })}
-                onClearOutputs={(id) => dispatch({ type: 'clearOutputs', id })}
+                onClearOutputs={clearOutputs}
               />
             ))}
             {state.nb.cells.length === 0 && !state.loadError && (

@@ -265,15 +265,27 @@ export const PANEL_CSS = /* css */ `
 .dshjp-tbtn.stop-active:hover { background: color-mix(in srgb, #dc2626 30%, transparent); color: #ff8080; }
 
 .dshjp-cell-type-select {
+  appearance: none;
+  -webkit-appearance: none;
   height: 24px;
-  padding: 0 4px;
+  padding: 0 20px 0 6px;
   border-radius: 5px;
   border: 1px solid var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.3));
-  background: transparent;
+  /* Theme-aware: the native select renders a UA background otherwise (white
+     even in dark themes); use the app's base token + a neutral chevron. */
+  background-color: var(--dsw-alias-bg-base, #0f1115);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
   cursor: pointer;
   flex: none;
+}
+
+.dshjp-cell-type-select option {
+  background-color: var(--dsw-alias-bg-base, #0f1115);
+  color: var(--dsw-alias-label-primary);
 }
 
 .dshjp-kernel-name {

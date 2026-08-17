@@ -17,7 +17,7 @@ import type { PluginContext } from './context.ts'
 import type { NotebookFs } from './jupyter/notebook.ts'
 import { detectEnv } from './jupyter/env.ts'
 import type { KernelManager } from './jupyter/kernel.ts'
-import { createSessionGate, isPathInside } from './gate.ts'
+import { createSessionGate, isPathInside, sessionCwdOf } from './gate.ts'
 
 /** Route family base. */
 export const JUPYTER_API = {
@@ -132,19 +132,16 @@ export function makeRoutes(deps: JupyterRoutesDeps): { routes: WebRoute[]; upgra
       handler: async (req, res) => {
         if (!guard(req, res, 'GET')) return
         const url = new URL(req.url ?? '/', 'http://localhost')
-        // The gate rejects an EMPTY path, so resolve the session's own cwd
-        // from the session store and gate THAT (canonicalized) instead.
         const sessionId = queryParam(url, 'sessionId')
         if (sessionId === undefined || sessionId === '') {
           writeJson(res, 400, { error: 'sessionId is required' })
           return
         }
-        const sessionCwd = ctx.sessions.get(sessionId)?.header.cwd
-        if (sessionCwd === undefined || sessionCwd === '') {
-          writeJson(res, 400, { error: 'workspace gate: session has no cwd' })
-          return
-        }
-        const verdict = await createSessionGate(ctx, sessionId, queryParam(url, 'cwd'))(sessionCwd)
+        // Resolve the session's authoritative cwd (header, then client cwd,
+        // then process cwd) and gate it to canonicalize, like the other
+        // routes — the gate rejects an EMPTY path, so never pass '' here.
+        const cwd = sessionCwdOf(ctx, sessionId, queryParam(url, 'cwd'))
+        const verdict = await createSessionGate(ctx, sessionId, queryParam(url, 'cwd'))(cwd)
         if (!verdict.ok) {
           writeJson(res, 400, { error: `workspace gate: ${verdict.error}` })
           return
@@ -192,6 +189,11 @@ export function makeRoutes(deps: JupyterRoutesDeps): { routes: WebRoute[]; upgra
         }
         try {
           await fs.write(path, body.nb as Parameters<NotebookFs['write']>[1])
+          // The browser just saved the notebook — any buffered completion
+          // replays for this file are stale (e.g. the user cleared the
+          // outputs; replaying them on the next reopen would resurrect the
+          // deleted logs). Drop them so a cleared notebook STAYS cleared.
+          kernels.clearCompletions(path)
           writeJson(res, 200, { ok: true })
         } catch (error) {
           writeJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
