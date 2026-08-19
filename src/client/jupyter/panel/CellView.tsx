@@ -56,7 +56,7 @@ function CodeEditor({ value, onChange, onRun, onRunSelectBelow, executing }: {
     const ta = taRef.current
     if (ta === null) return
     ta.style.height = 'auto'
-    ta.style.height = `${Math.min(480, Math.max(34, ta.scrollHeight))}px`
+    ta.style.height = `${Math.max(34, ta.scrollHeight)}px`
     syncScroll()
   }
 

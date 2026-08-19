@@ -439,7 +439,6 @@ export const PANEL_CSS = /* css */ `
 .dshjp-code-editor {
   position: relative;
   min-height: 34px;
-  max-height: 480px;
   overflow: hidden;
 }
 
@@ -478,27 +477,7 @@ export const PANEL_CSS = /* css */ `
   resize: none;
   color: transparent;
   caret-color: var(--dsw-alias-label-primary);
-  overflow: auto;
-  /* Thin scrollbar styling so the transparent-text textarea's scrollbar is
-     visible against the highlighted code overlay (the textarea is the only
-     scrollable layer — the highlight pre mirrors its scrollTop via JS). */
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.4)) transparent;
-}
-
-.dshjp-code-input::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.dshjp-code-input::-webkit-scrollbar-track {
-  background: transparent;
-}
-.dshjp-code-input::-webkit-scrollbar-thumb {
-  background: var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.4));
-  border-radius: 4px;
-}
-.dshjp-code-input::-webkit-scrollbar-thumb:hover {
-  background: var(--dsw-alias-label-tertiary, rgba(128,128,128,.6));
+  overflow: hidden;
 }
 
 .dshjp-code-input::selection { background: color-mix(in srgb, #4f8cff 40%, transparent); }
