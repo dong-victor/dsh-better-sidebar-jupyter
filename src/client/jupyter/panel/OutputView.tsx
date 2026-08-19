@@ -2,6 +2,9 @@
  * Output renderer: turns one UiOutput into DOM. Rich MIME bundles pick
  * text/html (sanitized) > image/png/jpeg > application/json > text/plain;
  * errors render tracebacks; streams render as pre blocks.
+ *
+ * ANSI SGR escape sequences in stream/error output are parsed into themed
+ * HTML spans so colored tracebacks render correctly (no raw [31m codes).
  * @module dsh-jupyter/client/panel/OutputView
  */
 
@@ -9,6 +12,7 @@ import { useMemo, useState } from 'react'
 import type { MimeBundle, UiOutput } from '../types.ts'
 import { sanitizeHtml } from './sanitize.ts'
 import { renderMarkdown } from './markdown.ts'
+import { ansiToHtml } from './ansi.ts'
 import { tt } from './helpers.ts'
 
 function pickMime(data: MimeBundle): { kind: 'html' | 'image' | 'json' | 'markdown' | 'text' | 'latex'; value: string } | null {
@@ -58,6 +62,8 @@ function RichOutput({ data }: { data: MimeBundle }): React.JSX.Element | null {
 /** Collapsible error traceback (IDEA-style: summary row + expand toggle). */
 function ErrorTraceback({ summary, trace }: { summary: string; trace: string[] }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const summaryHtml = useMemo(() => ansiToHtml(summary), [summary])
+  const traceHtml = useMemo(() => ansiToHtml(trace.join('\n')), [trace])
   return (
     <>
       <button
@@ -67,40 +73,65 @@ function ErrorTraceback({ summary, trace }: { summary: string; trace: string[] }
         onClick={() => setExpanded(!expanded)}
       >
         <span className="dshjp-error-toggle">{expanded ? '▼' : '▶'}</span>
-        <span className="dshjp-error-summary">{summary}</span>
+        {/* eslint-disable-next-line react/no-danger */}
+        <span className="dshjp-error-summary" dangerouslySetInnerHTML={{ __html: summaryHtml }} />
       </button>
-      {expanded && <pre className="dshjp-error-trace">{trace.join('\n')}</pre>}
+      {expanded && (
+        <pre
+          className="dshjp-error-trace"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: traceHtml }}
+        />
+      )}
     </>
+  )
+}
+
+/** Stream output (stdout/stderr) — ANSI parsed. */
+function StreamOutput({ name, text }: { name: 'stdout' | 'stderr'; text: string }): React.JSX.Element {
+  const html = useMemo(() => ansiToHtml(text), [text])
+  return (
+    <div className={`dshjp-output stream-${name}`}>
+      <pre
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
+  )
+}
+
+/** Single-line error (no collapse) — ANSI parsed. */
+function SimpleError({ text }: { text: string }): React.JSX.Element {
+  const html = useMemo(() => ansiToHtml(text), [text])
+  return (
+    <div className="dshjp-output error-out">
+      <pre
+        className="dshjp-error-trace"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   )
 }
 
 /** Render one output. */
 export function OutputView({ output }: { output: UiOutput }): React.JSX.Element {
   if (output.outputType === 'stream') {
-    return (
-      <div className={`dshjp-output stream-${output.name}`}>
-        {output.text.split('\n').length > 1 ? (
-          <pre>{output.text}</pre>
-        ) : (
-          <pre>{output.text}</pre>
-        )}
-      </div>
-    )
+    return <StreamOutput name={output.name} text={output.text} />
   }
   if (output.outputType === 'error') {
     // IDEA-style error node: show a summary line, expand to the full
     // traceback (collapsed by default when there is more than one line).
     const trace = output.traceback
     const summary = trace.length > 0 ? trace[trace.length - 1]! : `${output.ename}: ${output.evalue}`
-    return (
-      <div className="dshjp-output error-out">
-        {trace.length > 1 ? (
+    if (trace.length > 1) {
+      return (
+        <div className="dshjp-output error-out">
           <ErrorTraceback summary={summary} trace={trace} />
-        ) : (
-          <pre className="dshjp-error-trace">{trace.length > 0 ? trace.join('\n') : `${output.ename}: ${output.evalue}`}</pre>
-        )}
-      </div>
-    )
+        </div>
+      )
+    }
+    return <SimpleError text={trace.length > 0 ? trace.join('\n') : `${output.ename}: ${output.evalue}`} />
   }
   if (output.outputType === 'execute_result') {
     return (

@@ -17,7 +17,7 @@ export const STANDALONE_THEME_CSS = /* css */ `
   --dsw-alias-button-floating-hover: #262b33;
   --dsw-specific-sidebar-nav-item-hover: rgba(128, 136, 148, .25);
   --dsw-specific-sidebar-nav-item-active: rgba(79, 140, 255, .18);
-  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --dsw-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+  --dsw-font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
 }
 `

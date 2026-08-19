@@ -289,7 +289,7 @@ export const PANEL_CSS = /* css */ `
 }
 
 .dshjp-kernel-name {
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
   font-size: 11px;
   opacity: .8;
   margin-left: 2px;
@@ -365,7 +365,7 @@ export const PANEL_CSS = /* css */ `
 }
 
 .dshjp-cell-type { font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.dshjp-cell-count { margin-left: auto; font-variant-numeric: tabular-nums; font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace); }
+.dshjp-cell-count { margin-left: auto; font-variant-numeric: tabular-nums; font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace); }
 
 /* Queued (run-all tail) cell indicator. */
 .dshjp-cell-queued {
@@ -446,7 +446,7 @@ export const PANEL_CSS = /* css */ `
 .dshjp-code-highlight, .dshjp-code-input {
   margin: 0;
   padding: 8px 10px;
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
   font-size: 12.5px;
   line-height: 1.55;
   tab-size: 4;
@@ -464,7 +464,7 @@ export const PANEL_CSS = /* css */ `
   /* IDEA Darcula editor foreground (#a9b7c6) for un-tokenized text. */
   color: #a9b7c6;
   pointer-events: none;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .dshjp-code-highlight.show { visibility: visible; }
@@ -479,6 +479,26 @@ export const PANEL_CSS = /* css */ `
   color: transparent;
   caret-color: var(--dsw-alias-label-primary);
   overflow: auto;
+  /* Thin scrollbar styling so the transparent-text textarea's scrollbar is
+     visible against the highlighted code overlay (the textarea is the only
+     scrollable layer — the highlight pre mirrors its scrollTop via JS). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.4)) transparent;
+}
+
+.dshjp-code-input::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dshjp-code-input::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dshjp-code-input::-webkit-scrollbar-thumb {
+  background: var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.4));
+  border-radius: 4px;
+}
+.dshjp-code-input::-webkit-scrollbar-thumb:hover {
+  background: var(--dsw-alias-label-tertiary, rgba(128,128,128,.6));
 }
 
 .dshjp-code-input::selection { background: color-mix(in srgb, #4f8cff 40%, transparent); }
@@ -512,7 +532,7 @@ export const PANEL_CSS = /* css */ `
 .dshjp-markdown p { margin: .4em 0; }
 .dshjp-markdown ul, .dshjp-markdown ol { margin: .4em 0; padding-left: 1.6em; }
 .dshjp-markdown li { margin: .15em 0; }
-.dshjp-markdown code { font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace); font-size: .92em; background: color-mix(in srgb, #4f8cff 12%, transparent); padding: .1em .35em; border-radius: 4px; }
+.dshjp-markdown code { font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace); font-size: .92em; background: color-mix(in srgb, #4f8cff 12%, transparent); padding: .1em .35em; border-radius: 4px; }
 .dshjp-markdown pre { background: color-mix(in srgb, var(--dsw-alias-bg-base, #0f1115) 82%, black); border: 1px solid var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.2)); border-radius: 6px; padding: 8px 10px; overflow: auto; }
 .dshjp-markdown pre code { background: none; padding: 0; }
 .dshjp-markdown blockquote { margin: .4em 0; padding: .2em .8em; border-left: 3px solid color-mix(in srgb, #4f8cff 55%, transparent); color: var(--dsw-alias-label-secondary); }
@@ -532,7 +552,7 @@ export const PANEL_CSS = /* css */ `
   border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
   font-size: 12.5px;
   line-height: 1.55;
   resize: vertical;
@@ -554,7 +574,7 @@ export const PANEL_CSS = /* css */ `
 .dshjp-output pre {
   margin: 0;
   padding: 8px 10px;
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
   white-space: pre-wrap;
   word-break: break-word;
   background: color-mix(in srgb, var(--dsw-alias-bg-base, #0f1115) 78%, black);
@@ -568,7 +588,7 @@ export const PANEL_CSS = /* css */ `
   padding: 2px 10px;
   font-size: 11px;
   color: var(--dsw-alias-label-secondary);
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
 }
 
 .dshjp-output.stream-stdout pre { color: var(--dsw-alias-label-primary); }
@@ -594,7 +614,7 @@ export const PANEL_CSS = /* css */ `
   border: none;
   background: transparent;
   color: #fca5a5;
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
   font-size: 12.5px;
   line-height: 1.5;
   text-align: left;
@@ -611,7 +631,7 @@ export const PANEL_CSS = /* css */ `
   margin: 6px 0 0 10px;
   font-size: 11px;
   color: var(--dsw-alias-label-secondary);
-  font-family: var(--dsw-font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, "Cascadia Mono", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace);
 }
 
 .dshjp-output table { border-collapse: collapse; margin: 0; }
