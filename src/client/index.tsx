@@ -10,7 +10,11 @@
 import { createElement } from 'react'
 // Triggers the ctx.betterSidebar type augmentation (erased at build).
 import type {} from 'dsh-better-sidebar'
-import type { Context } from 'cordis'
+// The runtime's VENDORED cordis is the single module identity the whole
+// client half shares, and dsh-better-sidebar augments THIS package's Context
+// with `betterSidebar`. The standalone `cordis` npm package is a different
+// module identity and never sees that augmentation.
+import type { Context } from '@deepseek-ai/cordis'
 import { PANEL_CSS } from './jupyter/panel/styles.ts'
 import { NotebookView } from './NotebookView.tsx'
 import { startKernelDotPoller } from './explorerDot.ts'
